@@ -1,9 +1,10 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Tree, Empty, Button, Tooltip } from "antd";
+import { Tree, Empty, Button, Tooltip, message } from "antd";
 import { FolderOutlined, ReloadOutlined, AppstoreOutlined } from "@ant-design/icons";
 import { scanApi } from "../services/api";
 import { useWorkspaceStore } from "../stores/useWorkspaceStore";
+import { useScanStore } from "../stores/useScanStore";
 import { useDataVersionStore } from "../stores/useDataVersionStore";
 import type { FolderNode } from "../types";
 
@@ -59,7 +60,9 @@ export default function FolderTree({ selectedId, onSelect, refreshKey, workspace
   const workspace = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId),
   );
-  const bumpLibrary = useDataVersionStore((s) => s.bumpLibrary);
+  const startScan = useScanStore((s) => s.startScan);
+  const isScanning = useScanStore((s) => s.progress.isScanning);
+  const libraryVersion = useDataVersionStore((s) => s.libraryVersion);
 
   const folderNode = (f: FolderNode): TreeDataItem => ({
     key: `f-${f.id}`,
@@ -102,16 +105,20 @@ export default function FolderTree({ selectedId, onSelect, refreshKey, workspace
     }
   };
 
-  // 刷新树并通知列表页同步刷新
+  // 刷新 = 重新扫描当前工作区（增量，基于 mtime，很快），完成后列表与统计自动联动刷新
   const refreshTree = () => {
-    loadRoot();
-    bumpLibrary();
+    if (!workspace) return;
+    if (isScanning) {
+      message.info("扫描正在进行中，请稍候");
+      return;
+    }
+    startScan(workspace.path, workspace.name);
   };
 
   useEffect(() => {
     loadRoot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey, workspaceId]);
+  }, [refreshKey, workspaceId, libraryVersion]);
 
   // 工作区切换时重置展开状态
   useEffect(() => {
@@ -160,8 +167,14 @@ export default function FolderTree({ selectedId, onSelect, refreshKey, workspace
     <div className="folder-tree">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 4px 8px" }}>
         <span style={{ fontSize: 13, color: "#888" }}>文件夹</span>
-        <Tooltip title="刷新树并同步列表">
-          <Button size="small" type="text" icon={<ReloadOutlined />} onClick={refreshTree} />
+        <Tooltip title="重新扫描当前工作区（增量检测新文件）">
+          <Button
+            size="small"
+            type="text"
+            icon={<ReloadOutlined spin={isScanning} />}
+            onClick={refreshTree}
+            disabled={isScanning}
+          />
         </Tooltip>
       </div>
       {loadedRoots === 0 ? (
