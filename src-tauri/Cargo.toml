@@ -1,0 +1,34 @@
+[package]
+name = "video-manager"
+version = "0.1.0"
+description = "轻量级跨平台视频文件管理系统"
+authors = ["Video Manager Team"]
+edition = "2021"
+
+[lib]
+name = "video_manager_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+chrono = { version = "0.4", features = ["serde"] }
+walkdir = "2"
+dirs = "6"
+sha2 = "0.10"
+hex = "0.4"
+tar = "0.4"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
