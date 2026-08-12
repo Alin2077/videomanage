@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'windows-latest'
+            args: ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build & publish Tauri release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: 'VideoManager v__VERSION__'
+          releaseBody: |
+            ## 视频文件管理系统 (VideoManager)
+
+            Tauri 2 + React + SQLite 实现的轻量级跨平台视频文件管理系统。
+
+            ### 功能
+            - 📁 文件夹扫描：递归遍历、mtime 增量更新、进度/取消、忽略目录
+            - 🎬 播放与日志：内嵌/外部播放器、自动记录观看时长、CSV 导出
+            - 📊 统计图表：仪表盘、日/周/月趋势、TOP10 排行、标签饼图、7×24 热力图
+            - 🏷️ 标签管理：标签组、多标签、AND 筛选、批量打标
+            - 🛡️ 数据安全：SQLite 本地存储、.vfm-backup 备份/恢复
+
+            ### 安装
+            下载 `VideoManager_*_x64-setup.exe`（NSIS 安装包）或 `VideoManager_*_x64_en-US.msi` 安装。
+
+            > 提示：安装 ffmpeg 并加入 PATH 后（或在设置中配置路径），扫描可自动提取分辨率/时长/编码并生成封面。
+          releaseDraft: false
+          prerelease: false
