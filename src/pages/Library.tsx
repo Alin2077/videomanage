@@ -29,6 +29,7 @@ import { useLibraryStore } from "../stores/useLibraryStore";
 import { useScanStore } from "../stores/useScanStore";
 import { useTagStore } from "../stores/useTagStore";
 import { useWorkspaceStore } from "../stores/useWorkspaceStore";
+import { useDataVersionStore } from "../stores/useDataVersionStore";
 import type { VideoInfo } from "../types";
 import { formatDuration, formatSize, formatResolution } from "../utils/format";
 import { useDebounce } from "../hooks/useDebounce";
@@ -67,6 +68,8 @@ export default function Library() {
   const tagGroups = useTagStore((s) => s.tagGroups);
   const allTags = useMemo(() => tagGroups.flatMap((g) => g.tags), [tagGroups]);
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const libraryVersion = useDataVersionStore((s) => s.libraryVersion);
+  const logsVersion = useDataVersionStore((s) => s.logsVersion);
 
   const debouncedSearch = useDebounce(searchKeyword, 350);
 
@@ -103,7 +106,7 @@ export default function Library() {
 
   useEffect(() => {
     load();
-  }, [load, scanProgress.added, scanProgress.updated, scanProgress.unchanged, refreshKey]);
+  }, [load, scanProgress.added, scanProgress.updated, scanProgress.unchanged, refreshKey, libraryVersion, logsVersion]);
 
   const play = (v: VideoInfo) => setPlaying(v);
 
@@ -175,6 +178,20 @@ export default function Library() {
   ];
 
   const columns = [
+    {
+      title: "播放",
+      width: 80,
+      render: (_: unknown, v: VideoInfo) => (
+        <Button
+          size="small"
+          type="primary"
+          icon={<PlayCircleOutlined />}
+          onClick={() => play(v)}
+        >
+          播放
+        </Button>
+      ),
+    },
     {
       title: "文件名",
       dataIndex: "fileName",

@@ -136,6 +136,23 @@ export default function Settings() {
               开启后关闭窗口将驻留右下角托盘，可从托盘菜单退出
             </span>
           </Space>
+          <Space>
+            <span>播放器快进/快退步长（秒）：</span>
+            <Input
+              type="number"
+              min={0.5}
+              step={0.5}
+              style={{ width: 100 }}
+              defaultValue={settings.seek_step || "5"}
+              onBlur={(e) => {
+                const v = parseFloat(e.target.value);
+                saveField("seek_step", Number.isFinite(v) && v > 0 ? String(v) : "5");
+              }}
+            />
+            <span style={{ color: "#999", fontSize: 12 }}>
+              播放时按 ← / → 键按此步长快退/快进（如 0.5 / 1 / 2 秒）
+            </span>
+          </Space>
         </Space>
       </Card>
 

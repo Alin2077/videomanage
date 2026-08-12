@@ -21,18 +21,22 @@ export default function VideoCard({ video, selected, onClick, onPlay }: Props) {
       onClick={() => onClick(video)}
       onDoubleClick={() => onPlay(video)}
     >
-      {video.coverPath ? (
-        <img
-          className="video-cover"
-          src={toAssetUrl(video.coverPath)}
-          alt={title}
-          loading="lazy"
-        />
-      ) : (
-        <div className="video-cover">
+      <div className="video-cover-wrap">
+        {video.coverPath ? (
+          <img className="video-cover" src={toAssetUrl(video.coverPath)} alt={title} loading="lazy" />
+        ) : (
           <PlayCircleOutlined />
-        </div>
-      )}
+        )}
+        <button
+          className="video-play-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onPlay(video);
+          }}
+        >
+          <PlayCircleOutlined /> 播放
+        </button>
+      </div>
       <div className="video-card-body">
         <Tooltip title={title}>
           <div className="video-card-title">{title}</div>

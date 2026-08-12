@@ -2,6 +2,7 @@
 import { Col, Empty, Row, Spin, Table, Tag as AntTag } from "antd";
 import { statsApi, videoApi } from "../services/api";
 import { useWorkspaceStore } from "../stores/useWorkspaceStore";
+import { useDataVersionStore } from "../stores/useDataVersionStore";
 import type { DashboardStats, LeaderboardItem, TrendPoint, VideoInfo } from "../types";
 import { formatSize, formatWatchTime, formatDuration } from "../utils/format";
 import ReactECharts from "echarts-for-react";
@@ -17,6 +18,8 @@ export default function Dashboard() {
   const workspaceName = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === s.currentWorkspaceId)?.name,
   );
+  const libraryVersion = useDataVersionStore((s) => s.libraryVersion);
+  const logsVersion = useDataVersionStore((s) => s.logsVersion);
 
   useEffect(() => {
     setLoading(true);
@@ -31,7 +34,7 @@ export default function Dashboard() {
         setTopOpen(l);
       })
       .finally(() => setLoading(false));
-  }, [currentWorkspaceId]);
+  }, [currentWorkspaceId, libraryVersion, logsVersion]);
 
   const trendOption = {
     tooltip: { trigger: "axis" },

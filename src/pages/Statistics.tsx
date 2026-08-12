@@ -16,6 +16,7 @@ import { DownloadOutlined } from "@ant-design/icons";
 import ReactECharts from "echarts-for-react";
 import { logApi, statsApi, videoApi } from "../services/api";
 import { useWorkspaceStore } from "../stores/useWorkspaceStore";
+import { useDataVersionStore } from "../stores/useDataVersionStore";
 import type { HourCell, LeaderboardItem, OpenLogWithVideo, TagStat, TrendPoint, VideoInfo } from "../types";
 import { formatDuration, formatWatchTime } from "../utils/format";
 import VideoPlayer from "../components/VideoPlayer";
@@ -39,6 +40,8 @@ export default function Statistics() {
   const workspaceName = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === s.currentWorkspaceId)?.name,
   );
+  const libraryVersion = useDataVersionStore((s) => s.libraryVersion);
+  const logsVersion = useDataVersionStore((s) => s.logsVersion);
 
   useEffect(() => {
     setLoading(true);
@@ -54,11 +57,11 @@ export default function Statistics() {
       })
       .catch((e) => message.error(`加载统计失败: ${e}`))
       .finally(() => setLoading(false));
-  }, [range, currentWorkspaceId]);
+  }, [range, currentWorkspaceId, libraryVersion, logsVersion]);
 
   useEffect(() => {
     statsApi.leaderboard(currentWorkspaceId, lbCategory, 10).then(setLeaderboard).catch(() => {});
-  }, [lbCategory, currentWorkspaceId]);
+  }, [lbCategory, currentWorkspaceId, libraryVersion, logsVersion]);
 
   useEffect(() => {
     setLogPage(1);
@@ -72,7 +75,7 @@ export default function Statistics() {
         setLogsTotal(r.total);
       })
       .catch(() => {});
-  }, [logPage, logRange, currentWorkspaceId]);
+  }, [logPage, logRange, currentWorkspaceId, logsVersion]);
 
   const trendOption = {
     tooltip: { trigger: "axis" },

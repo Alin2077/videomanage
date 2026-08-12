@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { scanApi } from "../services/api";
+import { useDataVersionStore } from "./useDataVersionStore";
 import type { ScanProgress, ScanResult } from "../types";
 import { message } from "antd";
 
@@ -60,6 +61,8 @@ export const useScanStore = create<ScanState>((set, get) => ({
       const result = await scanApi.scanRootFolder(path, name || "");
       await get().refreshProgress();
       get().stopPoll();
+      // 扫描完成：通知各页面（列表/仪表盘/统计）刷新数据
+      useDataVersionStore.getState().bumpLibrary();
       if (result.errors.length > 0) {
         message.warning(`扫描完成：新增 ${result.added}，更新 ${result.updated}，${result.errors.length} 个文件提取失败`);
       } else {

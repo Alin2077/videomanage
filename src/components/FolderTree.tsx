@@ -4,6 +4,7 @@ import { Tree, Empty, Button, Tooltip } from "antd";
 import { FolderOutlined, ReloadOutlined, AppstoreOutlined } from "@ant-design/icons";
 import { scanApi } from "../services/api";
 import { useWorkspaceStore } from "../stores/useWorkspaceStore";
+import { useDataVersionStore } from "../stores/useDataVersionStore";
 import type { FolderNode } from "../types";
 
 interface Props {
@@ -20,6 +21,36 @@ interface TreeDataItem {
   children?: TreeDataItem[];
 }
 
+/** 节点标题：名称过长截断（ellipsis），视频数不截断 */
+const nodeTitle = (icon: ReactNode, name: string, count: number, bold = false) => (
+  <span
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      maxWidth: "100%",
+      minWidth: 0,
+      width: "100%",
+    }}
+  >
+    <span style={{ flexShrink: 0, marginRight: 4 }}>{icon}</span>
+    <span
+      style={{
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        flex: 1,
+        minWidth: 0,
+        fontWeight: bold ? 600 : 400,
+      }}
+    >
+      {name}
+    </span>
+    {count > 0 && (
+      <span style={{ color: "#999", fontSize: 12, marginLeft: 6, flexShrink: 0 }}>{count}</span>
+    )}
+  </span>
+);
+
 /** 懒加载文件夹树（以工作区为根，按工作区过滤） */
 export default function FolderTree({ selectedId, onSelect, refreshKey, workspaceId }: Props) {
   const [treeData, setTreeData] = useState<TreeDataItem[]>([]);
@@ -28,15 +59,11 @@ export default function FolderTree({ selectedId, onSelect, refreshKey, workspace
   const workspace = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId),
   );
+  const bumpLibrary = useDataVersionStore((s) => s.bumpLibrary);
 
   const folderNode = (f: FolderNode): TreeDataItem => ({
     key: `f-${f.id}`,
-    title: (
-      <span>
-        <FolderOutlined style={{ color: "#f6c343" }} /> {f.name}
-        <span style={{ color: "#999", fontSize: 12, marginLeft: 6 }}>{f.videoCount}</span>
-      </span>
-    ),
+    title: nodeTitle(<FolderOutlined style={{ color: "#f6c343" }} />, f.name, f.videoCount),
     isLeaf: !f.hasChildren,
   });
 
@@ -56,13 +83,11 @@ export default function FolderTree({ selectedId, onSelect, refreshKey, workspace
         setTreeData([
           {
             key: `ws-${workspaceId}`,
-            title: (
-              <span style={{ fontWeight: 600 }}>
-                <AppstoreOutlined style={{ color: "#4a7dff" }} /> {workspace?.name || "工作区"}
-                <span style={{ color: "#999", fontSize: 12, marginLeft: 6 }}>
-                  {roots.reduce((a, r) => a + r.videoCount, 0)}
-                </span>
-              </span>
+            title: nodeTitle(
+              <AppstoreOutlined style={{ color: "#4a7dff" }} />,
+              workspace?.name || "工作区",
+              roots.reduce((a, r) => a + r.videoCount, 0),
+              true,
             ),
             isLeaf: false,
             children: roots.map(folderNode),
@@ -75,6 +100,12 @@ export default function FolderTree({ selectedId, onSelect, refreshKey, workspace
     } catch {
       /* ignore */
     }
+  };
+
+  // 刷新树并通知列表页同步刷新
+  const refreshTree = () => {
+    loadRoot();
+    bumpLibrary();
   };
 
   useEffect(() => {
@@ -129,8 +160,8 @@ export default function FolderTree({ selectedId, onSelect, refreshKey, workspace
     <div className="folder-tree">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 4px 8px" }}>
         <span style={{ fontSize: 13, color: "#888" }}>文件夹</span>
-        <Tooltip title="刷新树">
-          <Button size="small" type="text" icon={<ReloadOutlined />} onClick={loadRoot} />
+        <Tooltip title="刷新树并同步列表">
+          <Button size="small" type="text" icon={<ReloadOutlined />} onClick={refreshTree} />
         </Tooltip>
       </div>
       {loadedRoots === 0 ? (
