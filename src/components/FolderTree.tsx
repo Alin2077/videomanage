@@ -74,7 +74,7 @@ export default function FolderTree({ selectedId, onSelect, refreshKey, workspace
       <div style={{ padding: 16 }}>
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未扫描任何文件夹" />
         <div style={{ color: "#999", fontSize: 12, textAlign: "center" }}>
-          请点击左侧「选择文件夹并扫描」
+          请点击左侧「新增文件夹并扫描」
         </div>
       </div>
     );

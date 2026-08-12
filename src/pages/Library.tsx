@@ -63,7 +63,9 @@ export default function Library() {
   const [batchTagIds, setBatchTagIds] = useState<number[]>([]);
   const [refreshKey] = useState(0);
   const scanProgress = useScanStore((s) => s.progress);
-  const allTags = useTagStore((s) => s.tagGroups.flatMap((g) => g.tags));
+  // 注意：selector 必须返回稳定引用，否则 useSyncExternalStore 会无限循环（React #185）
+  const tagGroups = useTagStore((s) => s.tagGroups);
+  const allTags = useMemo(() => tagGroups.flatMap((g) => g.tags), [tagGroups]);
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
 
   const debouncedSearch = useDebounce(searchKeyword, 350);
