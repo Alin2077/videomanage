@@ -86,8 +86,14 @@ fn is_ignored(name: &str, ignored: &[String]) -> bool {
     ignored.iter().any(|i| i.eq_ignore_ascii_case(name))
 }
 
-/// 确保文件夹层级存在于 DB，返回叶子文件夹 id
-fn ensure_folder(conn: &Connection, path: &Path, workspace_id: i64) -> Result<i64, String> {
+/// 确保文件夹层级存在于 DB，返回叶子文件夹 id。
+/// 递归向上创建祖先文件夹，但遇到 workspace_root 即终止（不创建工作区之外的目录）。
+fn ensure_folder(
+    conn: &Connection,
+    path: &Path,
+    workspace_id: i64,
+    workspace_root: &Path,
+) -> Result<i64, String> {
     let norm = normalize_path(path);
     // 按 path 查找（path 全局唯一，不限制 workspace 以兼容旧数据）
     if let Ok((id, existing_ws)) = conn.query_row(
@@ -111,11 +117,16 @@ fn ensure_folder(conn: &Connection, path: &Path, workspace_id: i64) -> Result<i6
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| path.to_string_lossy().to_string());
 
-    let parent_id: Option<i64> = match path.parent() {
-        Some(p) if !p.as_os_str().is_empty() && p != path => {
-            Some(ensure_folder(conn, p, workspace_id)?)
+    // 工作区根目录：parent_id = NULL，不再向上递归
+    let parent_id: Option<i64> = if path == workspace_root {
+        None
+    } else {
+        match path.parent() {
+            Some(p) if !p.as_os_str().is_empty() && p != path => {
+                Some(ensure_folder(conn, p, workspace_id, workspace_root)?)
+            }
+            _ => None,
         }
-        _ => None,
     };
 
     conn.execute(
@@ -234,7 +245,16 @@ pub fn run_scan(ctx: &ScanContext, root: &str, workspace_id: i64) -> Result<Scan
                 p.progress = (ratio * 100.0).min(99.0);
             });
 
-            let result = process_one_file(&conn, entry.path(), workspace_id, &ffprobe, &ffmpeg, cover_dir.as_deref(), compute_hash);
+            let result = process_one_file(
+                &conn,
+                entry.path(),
+                workspace_id,
+                &root_path,
+                &ffprobe,
+                &ffmpeg,
+                cover_dir.as_deref(),
+                compute_hash,
+            );
             scanned += 1;
             match result {
                 Ok(Outcome::Added) => added += 1,
@@ -289,6 +309,7 @@ fn process_one_file(
     conn: &Connection,
     path: &Path,
     workspace_id: i64,
+    workspace_root: &Path,
     ffprobe: &Option<PathBuf>,
     ffmpeg: &Option<PathBuf>,
     cover_dir: Option<&Path>,
@@ -320,7 +341,7 @@ fn process_one_file(
             return Ok(Outcome::Unchanged);
         }
         // 文件有变化或 workspace_id 不同（旧数据兼容）→ 重新提取元数据并更新
-        let folder_id = ensure_folder(conn, path.parent().unwrap_or(Path::new("")), workspace_id)?;
+        let folder_id = ensure_folder(conn, path.parent().unwrap_or(Path::new("")), workspace_id, workspace_root)?;
         let (meta, cover_path, hash) = extract(path, video_id, ffprobe, ffmpeg, cover_dir, compute_hash);
         conn.execute(
             "UPDATE videos SET folder_id = ?1, workspace_id = ?2, file_size = ?3, duration = ?4,
@@ -347,7 +368,7 @@ fn process_one_file(
     }
 
     // 新增
-    let folder_id = ensure_folder(conn, path.parent().unwrap_or(Path::new("")), workspace_id)?;
+    let folder_id = ensure_folder(conn, path.parent().unwrap_or(Path::new("")), workspace_id, workspace_root)?;
     let (meta, cover_path, hash) = extract(path, -1, ffprobe, ffmpeg, cover_dir, compute_hash);
     conn.execute(
         "INSERT INTO videos (folder_id, workspace_id, file_name, file_path, file_size, duration, width, height,
@@ -623,6 +644,51 @@ mod tests {
             )
             .unwrap();
         assert_eq!(v_ws, ws);
+        drop(conn);
+
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// 扫描不应创建工作区根之外的目录（如磁盘根），且根文件夹查询只返回工作区根
+    #[test]
+    fn scan_does_not_create_folders_outside_workspace_root() {
+        let (dir, db_path) = temp_env("scan_wsroot");
+        let sub = dir.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("x.mp4"), b"data").unwrap();
+
+        let conn = crate::db::init_db_at(&db_path).unwrap();
+        let ws = make_workspace(&conn, dir.to_str().unwrap());
+        let ctx = ScanContext::new(conn);
+        run_scan(&ctx, dir.to_str().unwrap(), ws).unwrap();
+
+        let conn = ctx.db.lock().unwrap();
+        let root_norm = normalize_path(&dir);
+        // 所有 folder 的 path 都应以工作区根为前缀（不得出现 temp 根/磁盘根）
+        let bad: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM folders WHERE path NOT LIKE ?1 || '%'",
+                params![root_norm],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(bad, 0, "不应存在工作区根之外的文件夹记录: {bad}");
+
+        // 根文件夹查询（等价 get_root_folders 的 JOIN workspaces 逻辑）：只返回工作区根
+        let roots: Vec<(String, i64)> = conn
+            .prepare(
+                "SELECT f.path, f.id FROM folders f
+                 JOIN workspaces w ON w.id = f.workspace_id
+                 WHERE f.workspace_id = ?1 AND f.path = w.path",
+            )
+            .unwrap()
+            .query_map(params![ws], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(roots.len(), 1, "根文件夹应只有工作区根自身");
+        assert_eq!(roots[0].0, root_norm);
         drop(conn);
 
         let _ = std::fs::remove_dir_all(&dir);

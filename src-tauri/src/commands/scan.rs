@@ -119,7 +119,7 @@ pub fn cancel_scan(state: TauriState<'_>) -> Result<(), String> {
     Ok(())
 }
 
-/// 获取指定工作区的根文件夹
+/// 获取指定工作区的根文件夹（按 path 精确匹配工作区根，避免返回磁盘根等无关目录）
 #[tauri::command]
 pub fn get_root_folders(state: TauriState<'_>, workspace_id: i64) -> Result<Vec<FolderNode>, String> {
     let conn = state
@@ -133,7 +133,8 @@ pub fn get_root_folders(state: TauriState<'_>, workspace_id: i64) -> Result<Vec<
                     (SELECT COUNT(*) FROM videos v WHERE v.folder_id = f.id) AS video_count,
                     EXISTS(SELECT 1 FROM folders c WHERE c.parent_id = f.id) AS has_children
              FROM folders f
-             WHERE f.parent_id IS NULL AND f.workspace_id = ?1
+             JOIN workspaces w ON w.id = f.workspace_id
+             WHERE f.workspace_id = ?1 AND f.path = w.path
              ORDER BY f.name",
         )
         .map_err(|e| format!("查询失败: {e}"))?;

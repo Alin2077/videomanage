@@ -1,6 +1,6 @@
 [package]
 name = "video-manager"
-version = "0.1.4"
+version = "0.1.5"
 description = "轻量级跨平台视频文件管理系统"
 authors = ["Video Manager Team"]
 edition = "2021"
