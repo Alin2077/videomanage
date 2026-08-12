@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { ConfigProvider, theme } from "antd";
 import zhCN from "antd/locale/zh_CN";
+import ErrorBoundary from "./components/ErrorBoundary";
 import MainLayout from "./components/Layout/MainLayout";
 import Dashboard from "./pages/Dashboard";
 import Library from "./pages/Library";
@@ -29,18 +30,20 @@ export default function App() {
         token: { colorPrimary: "#4a7dff" },
       }}
     >
-      <HashRouter>
-        <Routes>
-          <Route path="/" element={<MainLayout />}>
-            <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="dashboard" element={<Dashboard />} />
-            <Route path="library" element={<Library />} />
-            <Route path="statistics" element={<Statistics />} />
-            <Route path="tags" element={<Tags />} />
-            <Route path="settings" element={<Settings />} />
-          </Route>
-        </Routes>
-      </HashRouter>
+      <ErrorBoundary>
+        <HashRouter>
+          <Routes>
+            <Route path="/" element={<MainLayout />}>
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="dashboard" element={<Dashboard />} />
+              <Route path="library" element={<Library />} />
+              <Route path="statistics" element={<Statistics />} />
+              <Route path="tags" element={<Tags />} />
+              <Route path="settings" element={<Settings />} />
+            </Route>
+          </Routes>
+        </HashRouter>
+      </ErrorBoundary>
     </ConfigProvider>
   );
 }

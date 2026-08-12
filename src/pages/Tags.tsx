@@ -19,11 +19,13 @@ import {
 } from "@ant-design/icons";
 import { statsApi } from "../services/api";
 import { useTagStore } from "../stores/useTagStore";
+import { useWorkspaceStore } from "../stores/useWorkspaceStore";
 import type { TagStat } from "../types";
 
 export default function Tags() {
   const { tagGroups, createTag, updateTag, createGroup, deleteGroup } =
     useTagStore();
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const [tagCounts, setTagCounts] = useState<Record<number, number>>({});
 
   // 新建/编辑标签弹窗
@@ -36,12 +38,12 @@ export default function Tags() {
   const [groupName, setGroupName] = useState("");
 
   useEffect(() => {
-    statsApi.tagStats().then((list: TagStat[]) => {
+    statsApi.tagStats(currentWorkspaceId).then((list: TagStat[]) => {
       const map: Record<number, number> = {};
       for (const t of list) map[t.tagId] = t.videoCount;
       setTagCounts(map);
     });
-  }, [tagGroups]);
+  }, [tagGroups, currentWorkspaceId]);
 
   const openCreateTag = (groupId: number | null) => {
     setTagModal({ groupId });

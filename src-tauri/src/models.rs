@@ -240,3 +240,80 @@ pub struct ScanResult {
     pub unchanged: u64,
     pub errors: Vec<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn sample_video() -> VideoInfo {
+        VideoInfo {
+            id: 1,
+            folder_id: 2,
+            file_name: "a.mp4".into(),
+            file_path: "C:\\a.mp4".into(),
+            file_size: 100,
+            duration: Some(10.5),
+            width: Some(1920),
+            height: Some(1080),
+            codec: Some("h264".into()),
+            fps: Some(30.0),
+            sample_rate: None,
+            cover_path: None,
+            custom_title: None,
+            notes: None,
+            open_count: 3,
+            file_hash: None,
+            created_at: String::new(),
+            modified_at: String::new(),
+            scanned_at: String::new(),
+            tags: vec![Tag { id: 9, group_id: None, name: "电影".into(), color: "#1890ff".into() }],
+        }
+    }
+
+    #[test]
+    fn video_info_serializes_with_camel_case() {
+        let val = serde_json::to_value(sample_video()).unwrap();
+        assert_eq!(val["fileName"], "a.mp4");
+        assert_eq!(val["folderId"], 2);
+        assert_eq!(val["openCount"], 3);
+        assert_eq!(val["sampleRate"], serde_json::Value::Null);
+        assert_eq!(val["tags"][0]["groupId"], serde_json::Value::Null);
+        assert!(val.get("file_name").is_none(), "不应输出 snake_case 字段 file_name");
+        assert!(val.get("open_count").is_none(), "不应输出 snake_case 字段 open_count");
+    }
+
+    #[test]
+    fn video_query_deserializes_camel_case() {
+        // 模拟前端 invoke('list_videos', { query }) 的参数
+        let json = json!({
+            "workspaceId": 5,
+            "folderId": 3,
+            "keyword": "demo",
+            "tagIds": [1, 2],
+            "page": 1,
+            "pageSize": 50,
+            "sortBy": "name",
+            "sortOrder": "asc"
+        });
+        let q: VideoQuery = serde_json::from_value(json).unwrap();
+        assert_eq!(q.workspace_id, Some(5));
+        assert_eq!(q.folder_id, Some(3));
+        assert_eq!(q.page_size, 50);
+        assert_eq!(q.tag_ids, Some(vec![1, 2]));
+    }
+
+    #[test]
+    fn scan_result_serializes_with_camel_case() {
+        let r = ScanResult {
+            workspace_id: 7,
+            added: 1,
+            updated: 2,
+            unchanged: 3,
+            errors: vec![],
+        };
+        let val = serde_json::to_value(r).unwrap();
+        assert_eq!(val["workspaceId"], 7);
+        assert!(val.get("workspace_id").is_none());
+    }
+}

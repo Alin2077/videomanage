@@ -15,6 +15,7 @@ import {
 import { DownloadOutlined } from "@ant-design/icons";
 import ReactECharts from "echarts-for-react";
 import { logApi, statsApi, videoApi } from "../services/api";
+import { useWorkspaceStore } from "../stores/useWorkspaceStore";
 import type { HourCell, LeaderboardItem, OpenLogWithVideo, TagStat, TrendPoint, VideoInfo } from "../types";
 import { formatDuration, formatWatchTime } from "../utils/format";
 import VideoPlayer from "../components/VideoPlayer";
@@ -34,13 +35,17 @@ export default function Statistics() {
   const [logRange, setLogRange] = useState<[string | null, string | null]>([null, null]);
   const [playing, setPlaying] = useState<VideoInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const workspaceName = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === s.currentWorkspaceId)?.name,
+  );
 
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      statsApi.trend(range),
-      statsApi.tagStats(),
-      statsApi.hourlyHeatmap(),
+      statsApi.trend(currentWorkspaceId, range),
+      statsApi.tagStats(currentWorkspaceId),
+      statsApi.hourlyHeatmap(currentWorkspaceId),
     ])
       .then(([t, ts, hm]) => {
         setTrend(t);
@@ -49,21 +54,25 @@ export default function Statistics() {
       })
       .catch((e) => message.error(`加载统计失败: ${e}`))
       .finally(() => setLoading(false));
-  }, [range]);
+  }, [range, currentWorkspaceId]);
 
   useEffect(() => {
-    statsApi.leaderboard(lbCategory, 10).then(setLeaderboard).catch(() => {});
-  }, [lbCategory]);
+    statsApi.leaderboard(currentWorkspaceId, lbCategory, 10).then(setLeaderboard).catch(() => {});
+  }, [lbCategory, currentWorkspaceId]);
+
+  useEffect(() => {
+    setLogPage(1);
+  }, [currentWorkspaceId]);
 
   useEffect(() => {
     logApi
-      .list({ startDate: logRange[0], endDate: logRange[1] }, logPage, 20)
+      .list({ startDate: logRange[0], endDate: logRange[1] }, currentWorkspaceId, logPage, 20)
       .then((r) => {
         setLogs(r.items);
         setLogsTotal(r.total);
       })
       .catch(() => {});
-  }, [logPage, logRange]);
+  }, [logPage, logRange, currentWorkspaceId]);
 
   const trendOption = {
     tooltip: { trigger: "axis" },
@@ -164,7 +173,7 @@ export default function Statistics() {
         filters: [{ name: "CSV", extensions: ["csv"] }],
       });
       if (!filePath) return;
-      await logApi.export({ startDate: logRange[0], endDate: logRange[1] }, filePath);
+      await logApi.export({ startDate: logRange[0], endDate: logRange[1] }, currentWorkspaceId, filePath);
       message.success(`已导出到 ${filePath}`);
     } catch (e) {
       message.error(`导出失败: ${e}`);
@@ -208,7 +217,9 @@ export default function Statistics() {
 
   return (
     <div className="page-container">
-      <div className="page-title">统计分析</div>
+      <div className="page-title">
+        统计分析{workspaceName ? ` · ${workspaceName}` : ""}
+      </div>
 
       <Row gutter={[14, 14]}>
         <Col xs={24} lg={14}>

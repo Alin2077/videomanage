@@ -49,14 +49,14 @@ export default function VideoCard({ video, selected, onClick, onPlay }: Props) {
             )}
           </span>
         </div>
-        {video.tags.length > 0 && (
+        {(video.tags ?? []).length > 0 && (
           <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
-            {video.tags.slice(0, 3).map((t) => (
+            {(video.tags ?? []).slice(0, 3).map((t) => (
               <AntTag key={t.id} color={t.color} style={{ marginInlineEnd: 0, fontSize: 11 }}>
                 {t.name}
               </AntTag>
             ))}
-            {video.tags.length > 3 && (
+            {(video.tags ?? []).length > 3 && (
               <AntTag style={{ marginInlineEnd: 0, fontSize: 11 }}>+{video.tags.length - 3}</AntTag>
             )}
           </div>

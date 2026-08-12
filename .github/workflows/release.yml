@@ -39,6 +39,27 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Generate changelog from commits
+        id: changelog
+        shell: bash
+        run: |
+          PREV_TAG=$(git tag --sort=-creatordate | sed -n 2p)
+          if [ -z "$PREV_TAG" ]; then
+            FIRST_MSG=$(git log -1 --pretty=%s)
+            {
+              echo "body<<EOF"
+              echo "- $FIRST_MSG"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "body<<EOF"
+              git log --pretty=format:"- %s" "$PREV_TAG"..HEAD
+              echo ""
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build & publish Tauri release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -51,12 +72,17 @@ jobs:
 
             Tauri 2 + React + SQLite 实现的轻量级跨平台视频文件管理系统。
 
+            ### 本次更新（自动生成）
+            ${{ steps.changelog.outputs.body }}
+
             ### 功能
+            - 🗂️ 多工作区：侧边栏可新增/切换/删除多个视频库文件夹
             - 📁 文件夹扫描：递归遍历、mtime 增量更新、进度/取消、忽略目录
             - 🎬 播放与日志：内嵌/外部播放器、自动记录观看时长、CSV 导出
-            - 📊 统计图表：仪表盘、日/周/月趋势、TOP10 排行、标签饼图、7×24 热力图
+            - 📊 统计图表：仪表盘、日/周/月趋势、TOP10 排行、标签饼图、7×24 热力图（跟随当前工作区）
             - 🏷️ 标签管理：标签组、多标签、AND 筛选、批量打标
             - 🛡️ 数据安全：SQLite 本地存储、.vfm-backup 备份/恢复
+            - 🖥️ 系统托盘：关闭可最小化到托盘，hover 显示统计
 
             ### 安装
             下载 `VideoManager_*_x64-setup.exe`（NSIS 安装包）或 `VideoManager_*_x64_en-US.msi` 安装。

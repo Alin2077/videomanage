@@ -181,7 +181,7 @@ export default function Library() {
       render: (_: unknown, v: VideoInfo) => (
         <Space>
           <span style={{ fontWeight: 500 }}>{v.customTitle || v.fileName}</span>
-          {v.tags.slice(0, 2).map((t) => (
+          {(v.tags ?? []).slice(0, 2).map((t) => (
             <AntTag key={t.id} color={t.color} style={{ marginInlineEnd: 0 }}>{t.name}</AntTag>
           ))}
         </Space>

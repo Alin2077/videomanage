@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import { Col, Empty, Row, Spin, Table, Tag as AntTag } from "antd";
 import { statsApi, videoApi } from "../services/api";
+import { useWorkspaceStore } from "../stores/useWorkspaceStore";
 import type { DashboardStats, LeaderboardItem, TrendPoint, VideoInfo } from "../types";
 import { formatSize, formatWatchTime, formatDuration } from "../utils/format";
 import ReactECharts from "echarts-for-react";
@@ -12,13 +13,17 @@ export default function Dashboard() {
   const [topOpen, setTopOpen] = useState<LeaderboardItem[]>([]);
   const [playing, setPlaying] = useState<VideoInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const workspaceName = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === s.currentWorkspaceId)?.name,
+  );
 
-  const load = () => {
+  useEffect(() => {
     setLoading(true);
     Promise.all([
-      statsApi.dashboard(),
-      statsApi.trend("day"),
-      statsApi.leaderboard("open", 5),
+      statsApi.dashboard(currentWorkspaceId),
+      statsApi.trend(currentWorkspaceId, "day"),
+      statsApi.leaderboard(currentWorkspaceId, "open", 5),
     ])
       .then(([s, t, l]) => {
         setStats(s);
@@ -26,9 +31,7 @@ export default function Dashboard() {
         setTopOpen(l);
       })
       .finally(() => setLoading(false));
-  };
-
-  useEffect(load, []);
+  }, [currentWorkspaceId]);
 
   const trendOption = {
     tooltip: { trigger: "axis" },
@@ -80,7 +83,9 @@ export default function Dashboard() {
 
   return (
     <div className="page-container">
-      <div className="page-title">仪表盘</div>
+      <div className="page-title">
+        仪表盘{workspaceName ? ` · ${workspaceName}` : ""}
+      </div>
 
       <Row gutter={[14, 14]}>
         {cards.map((c) => (

@@ -78,20 +78,24 @@ export const tagApi = {
 
 // ---------- 日志 ----------
 export const logApi = {
-  list: (filter: LogFilter, page: number, pageSize: number) =>
-    invoke<PageResult<OpenLogWithVideo>>("list_logs", { filter, page, pageSize }),
-  export: (filter: LogFilter, outputPath: string) =>
-    invoke<void>("export_logs", { filter, outputPath }),
+  list: (filter: LogFilter, workspaceId: number | null, page: number, pageSize: number) =>
+    invoke<PageResult<OpenLogWithVideo>>("list_logs", { filter, workspaceId, page, pageSize }),
+  export: (filter: LogFilter, workspaceId: number | null, outputPath: string) =>
+    invoke<void>("export_logs", { filter, workspaceId, outputPath }),
 };
 
 // ---------- 统计 ----------
 export const statsApi = {
-  dashboard: () => invoke<DashboardStats>("get_dashboard_stats"),
-  trend: (range: "day" | "week" | "month") => invoke<TrendPoint[]>("get_view_trend", { range }),
-  leaderboard: (category: string, limit: number) =>
-    invoke<LeaderboardItem[]>("get_leaderboard", { category, limit }),
-  tagStats: () => invoke<TagStat[]>("get_tag_stats"),
-  hourlyHeatmap: () => invoke<HourCell[]>("get_hourly_heatmap"),
+  dashboard: (workspaceId: number | null) =>
+    invoke<DashboardStats>("get_dashboard_stats", { workspaceId }),
+  trend: (workspaceId: number | null, range: "day" | "week" | "month") =>
+    invoke<TrendPoint[]>("get_view_trend", { workspaceId, range }),
+  leaderboard: (workspaceId: number | null, category: string, limit: number) =>
+    invoke<LeaderboardItem[]>("get_leaderboard", { workspaceId, category, limit }),
+  tagStats: (workspaceId: number | null) =>
+    invoke<TagStat[]>("get_tag_stats", { workspaceId }),
+  hourlyHeatmap: (workspaceId: number | null) =>
+    invoke<HourCell[]>("get_hourly_heatmap", { workspaceId }),
 };
 
 // ---------- 设置 ----------

@@ -60,11 +60,12 @@ pub fn repair_crashed_logs(state: TauriState<'_>) -> Result<u64, String> {
     })
 }
 
-/// 查询打开日志（按日期范围 / 视频筛选）
+/// 查询打开日志（按日期范围 / 视频 / 工作区筛选）
 #[tauri::command]
 pub fn list_logs(
     state: TauriState<'_>,
     filter: LogFilter,
+    workspace_id: Option<i64>,
     page: u32,
     page_size: u32,
 ) -> Result<crate::models::PageResult<crate::models::OpenLogWithVideo>, String> {
@@ -72,6 +73,10 @@ pub fn list_logs(
         let mut where_clauses: Vec<String> = Vec::new();
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
+        if let Some(ws) = workspace_id {
+            where_clauses.push("v.workspace_id = ?".to_string());
+            params_vec.push(Box::new(ws));
+        }
         if let Some(vid) = filter.video_id {
             where_clauses.push("l.video_id = ?".to_string());
             params_vec.push(Box::new(vid));
@@ -142,10 +147,19 @@ pub fn list_logs(
 
 /// 导出日志为 CSV
 #[tauri::command]
-pub fn export_logs(state: TauriState<'_>, filter: LogFilter, output_path: String) -> Result<(), String> {
+pub fn export_logs(
+    state: TauriState<'_>,
+    filter: LogFilter,
+    workspace_id: Option<i64>,
+    output_path: String,
+) -> Result<(), String> {
     with_db(&state, |conn| {
         let mut where_clauses: Vec<String> = Vec::new();
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        if let Some(ws) = workspace_id {
+            where_clauses.push("v.workspace_id = ?".to_string());
+            params_vec.push(Box::new(ws));
+        }
         if let Some(vid) = filter.video_id {
             where_clauses.push("l.video_id = ?".to_string());
             params_vec.push(Box::new(vid));
