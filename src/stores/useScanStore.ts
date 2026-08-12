@@ -5,7 +5,7 @@ import { message } from "antd";
 
 interface ScanState {
   progress: ScanProgress;
-  startScan: (path: string) => Promise<ScanResult | null>;
+  startScan: (path: string, name?: string) => Promise<ScanResult | null>;
   cancelScan: () => Promise<void>;
   refreshProgress: () => Promise<void>;
   poll: () => void;
@@ -52,12 +52,12 @@ export const useScanStore = create<ScanState>((set, get) => ({
     }
   },
 
-  async startScan(path) {
+  async startScan(path, name) {
     get().stopPoll();
     set({ progress: { ...initialProgress, isScanning: true } });
     get().poll();
     try {
-      const result = await scanApi.scanRootFolder(path);
+      const result = await scanApi.scanRootFolder(path, name || "");
       await get().refreshProgress();
       get().stopPoll();
       if (result.errors.length > 0) {

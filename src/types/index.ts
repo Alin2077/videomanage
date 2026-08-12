@@ -1,3 +1,13 @@
+// ---------- 工作区 ----------
+export interface Workspace {
+  id: number;
+  name: string;
+  path: string;
+  createdAt: string;
+  videoCount: number;
+  folderCount: number;
+}
+
 // ---------- 文件夹 ----------
 export interface FolderNode {
   id: number;
@@ -86,6 +96,7 @@ export interface VideoDetail {
 }
 
 export interface VideoQuery {
+  workspaceId?: number | null;
   folderId?: number | null;
   keyword?: string | null;
   tagIds?: number[] | null;
@@ -180,6 +191,7 @@ export interface ScanProgress {
 }
 
 export interface ScanResult {
+  workspaceId: number;
   added: number;
   updated: number;
   unchanged: number;

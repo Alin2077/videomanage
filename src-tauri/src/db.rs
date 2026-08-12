@@ -79,21 +79,32 @@ pub fn init_db_at(path: &std::path::Path) -> Result<Connection, String> {
 fn migrate(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
         r#"
+-- 工作区表（每个工作区对应一个视频库文件夹）
+CREATE TABLE IF NOT EXISTS workspaces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL UNIQUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 文件夹表
 CREATE TABLE IF NOT EXISTS folders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     parent_id INTEGER,
+    workspace_id INTEGER,
     name TEXT NOT NULL,
     path TEXT NOT NULL UNIQUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE CASCADE
+    FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE CASCADE,
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
 );
 
 -- 视频表
 CREATE TABLE IF NOT EXISTS videos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     folder_id INTEGER NOT NULL,
+    workspace_id INTEGER,
     file_name TEXT NOT NULL,
     file_path TEXT NOT NULL UNIQUE,
     file_size INTEGER NOT NULL,
@@ -167,7 +178,7 @@ CREATE TABLE IF NOT EXISTS scan_errors (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 索引
+-- 索引（基础部分；workspace 索引在迁移列后创建）
 CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id);
 CREATE INDEX IF NOT EXISTS idx_videos_path ON videos(file_path);
 CREATE INDEX IF NOT EXISTS idx_videos_folder ON videos(folder_id);
@@ -179,5 +190,32 @@ CREATE INDEX IF NOT EXISTS idx_videos_modified ON videos(modified_at);
 "#,
     )
     .map_err(|e| format!("初始化数据库失败: {e}"))?;
+
+    // 旧库迁移：补充 workspace_id 列
+    ensure_column(conn, "folders", "workspace_id", "workspace_id INTEGER REFERENCES workspaces(id) ON DELETE CASCADE")?;
+    ensure_column(conn, "videos", "workspace_id", "workspace_id INTEGER")?;
+
+    // workspace 相关索引（依赖列已存在）
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_folders_workspace ON folders(workspace_id);
+         CREATE INDEX IF NOT EXISTS idx_videos_workspace ON videos(workspace_id);",
+    )
+    .map_err(|e| format!("创建索引失败: {e}"))?;
+    Ok(())
+}
+
+/// 若表中不存在指定列则补充（用于旧库迁移）
+fn ensure_column(conn: &Connection, table: &str, column: &str, ddl: &str) -> Result<(), String> {
+    let exists: bool = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .and_then(|mut stmt| {
+            stmt.query_map([], |r| r.get::<_, String>(1))
+                .map(|rows| rows.flatten().any(|c| c == column))
+        })
+        .unwrap_or(false);
+    if !exists {
+        conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {ddl};"))
+            .map_err(|e| format!("迁移 {table}.{column} 失败: {e}"))?;
+    }
     Ok(())
 }

@@ -8,6 +8,7 @@ interface Props {
   selectedId: number | null;
   onSelect: (id: number | null) => void;
   refreshKey: number;
+  workspaceId: number | null;
 }
 
 interface TreeDataItem {
@@ -17,14 +18,19 @@ interface TreeDataItem {
   children?: TreeDataItem[];
 }
 
-/** 懒加载文件夹树 */
-export default function FolderTree({ selectedId, onSelect, refreshKey }: Props) {
+/** 懒加载文件夹树（按工作区） */
+export default function FolderTree({ selectedId, onSelect, refreshKey, workspaceId }: Props) {
   const [treeData, setTreeData] = useState<TreeDataItem[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   const loadRoot = async () => {
+    if (workspaceId === null) {
+      setTreeData([]);
+      setLoaded(false);
+      return;
+    }
     try {
-      const roots = await scanApi.getRootFolders();
+      const roots = await scanApi.getRootFolders(workspaceId);
       setTreeData(
         roots.map((f) => ({
           key: `f-${f.id}`,
@@ -46,7 +52,7 @@ export default function FolderTree({ selectedId, onSelect, refreshKey }: Props) 
   useEffect(() => {
     loadRoot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey]);
+  }, [refreshKey, workspaceId]);
 
   const loadChildren = async (node: TreeDataItem): Promise<TreeDataItem[]> => {
     const id = Number(node.key.replace("f-", ""));

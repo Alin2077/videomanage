@@ -19,15 +19,17 @@ import {
   PlayCircleOutlined,
   SearchOutlined,
   UploadOutlined,
+  GlobalOutlined,
 } from "@ant-design/icons";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { settingsApi } from "../services/api";
 import { useSettingsStore } from "../stores/useSettingsStore";
-import { useScanStore } from "../stores/useScanStore";
+import { useWorkspaceStore } from "../stores/useWorkspaceStore";
 
 export default function Settings() {
   const { settings, set, load } = useSettingsStore();
-  const startScan = useScanStore((s) => s.startScan);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
   const [form] = Form.useForm();
   const [tools, setTools] = useState<{ ffprobe: string | null; ffmpeg: string | null } | null>(null);
 
@@ -103,30 +105,37 @@ export default function Settings() {
     }
   };
 
-  const rescan = async () => {
-    const root = settings.root_path;
-    if (!root) {
-      message.warning("尚未设置视频库根目录，请先扫描");
-      return;
-    }
-    await startScan(root);
+  const downloadFfmpeg = (url: string) => {
+    openUrl(url).catch(() => message.error("无法打开浏览器，请手动访问 " + url));
   };
 
   return (
     <div className="page-container">
       <div className="page-title">设置</div>
 
-      <Card size="small" title={<Space><PlayCircleOutlined /> 外观</Space>} style={{ maxWidth: 720, marginBottom: 14 }}>
-        <Space>
-          <span>主题：</span>
-          <Segmented
-            value={settings.theme === "dark" ? "dark" : "light"}
-            onChange={(v) => saveField("theme", v as string)}
-            options={[
-              { label: "☀️ 亮色", value: "light" },
-              { label: "🌙 暗色", value: "dark" },
-            ]}
-          />
+      <Card size="small" title={<Space><PlayCircleOutlined /> 外观与行为</Space>} style={{ maxWidth: 720, marginBottom: 14 }}>
+        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+          <Space>
+            <span>主题：</span>
+            <Segmented
+              value={settings.theme === "dark" ? "dark" : "light"}
+              onChange={(v) => saveField("theme", v as string)}
+              options={[
+                { label: "☀️ 亮色", value: "light" },
+                { label: "🌙 暗色", value: "dark" },
+              ]}
+            />
+          </Space>
+          <Space>
+            <span>点击关闭按钮时最小化到系统托盘：</span>
+            <Switch
+              checked={settings.close_to_tray === "1"}
+              onChange={(v) => saveField("close_to_tray", v ? "1" : "0")}
+            />
+            <span style={{ color: "#999", fontSize: 12 }}>
+              开启后关闭窗口将驻留右下角托盘，可从托盘菜单退出
+            </span>
+          </Space>
         </Space>
       </Card>
 
@@ -134,9 +143,14 @@ export default function Settings() {
         size="small"
         title={<Space><ExperimentOutlined /> 媒体工具（ffmpeg / ffprobe）</Space>}
         extra={
-          <Button size="small" type="primary" icon={<SearchOutlined />} onClick={detect}>
-            自动检测
-          </Button>
+          <Space>
+            <Button size="small" icon={<GlobalOutlined />} onClick={() => downloadFfmpeg("https://www.gyan.dev/ffmpeg/builds/")}>
+              下载 ffmpeg (Windows)
+            </Button>
+            <Button size="small" type="primary" icon={<SearchOutlined />} onClick={detect}>
+              自动检测
+            </Button>
+          </Space>
         }
         style={{ maxWidth: 720, marginBottom: 14 }}
       >
@@ -144,7 +158,12 @@ export default function Settings() {
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message="安装 ffmpeg（包含 ffprobe）后，扫描时自动提取分辨率/时长/编码/帧率并生成封面。未安装时仅记录文件信息，功能不受影响。"
+          message={
+            <>
+              安装 ffmpeg（包含 ffprobe）后，扫描时自动提取分辨率/时长/编码/帧率并生成封面。未安装时仅记录文件信息，功能不受影响。其他平台下载：{" "}
+              <a onClick={() => downloadFfmpeg("https://ffmpeg.org/download.html")}>ffmpeg.org</a>
+            </>
+          }
         />
         <Form form={form} layout="vertical">
           <Space direction="vertical" style={{ width: "100%" }} size={8}>
@@ -216,11 +235,22 @@ export default function Settings() {
             <span style={{ color: "#999", fontSize: 12 }}>用于重复视频检测，扫描速度会变慢</span>
           </Space>
           <Divider style={{ margin: "4px 0" }} />
-          <Space>
-            <span style={{ width: 90 }}>视频库根目录</span>
-            <AntTag color="blue">{settings.root_path || "尚未设置"}</AntTag>
-            <Button size="small" onClick={rescan}>重新扫描</Button>
-          </Space>
+          <div>
+            <div style={{ marginBottom: 6 }}>工作区列表（在左侧边栏新增/切换/删除）</div>
+            {workspaces.length === 0 ? (
+              <span style={{ color: "#999", fontSize: 12 }}>暂无工作区</span>
+            ) : (
+              <Space direction="vertical" size={4}>
+                {workspaces.map((w) => (
+                  <Space key={w.id} size={8}>
+                    <AntTag color="blue">{w.name}</AntTag>
+                    <span style={{ color: "#888", fontSize: 12 }}>{w.path}</span>
+                    <span style={{ color: "#bbb", fontSize: 12 }}>{w.videoCount} 个视频</span>
+                  </Space>
+                ))}
+              </Space>
+            )}
+          </div>
           <Space>
             <Button icon={<DownloadOutlined />} onClick={exportBackup}>导出备份 (.vfm-backup)</Button>
             <Button icon={<UploadOutlined />} onClick={importBackup}>导入备份</Button>

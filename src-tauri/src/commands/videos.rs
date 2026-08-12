@@ -35,6 +35,11 @@ pub fn list_videos(state: TauriState<'_>, query: VideoQuery) -> Result<PageResul
         let mut where_clauses: Vec<String> = Vec::new();
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
+        // 工作区过滤（视频库页面总是携带当前工作区）
+        if let Some(ws) = query.workspace_id {
+            where_clauses.push("v.workspace_id = ?".to_string());
+            params_vec.push(Box::new(ws));
+        }
         if let Some(fid) = query.folder_id {
             where_clauses.push("v.folder_id = ?".to_string());
             params_vec.push(Box::new(fid));

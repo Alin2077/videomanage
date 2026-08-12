@@ -28,6 +28,7 @@ import { tagApi, videoApi } from "../services/api";
 import { useLibraryStore } from "../stores/useLibraryStore";
 import { useScanStore } from "../stores/useScanStore";
 import { useTagStore } from "../stores/useTagStore";
+import { useWorkspaceStore } from "../stores/useWorkspaceStore";
 import type { VideoInfo } from "../types";
 import { formatDuration, formatSize, formatResolution } from "../utils/format";
 import { useDebounce } from "../hooks/useDebounce";
@@ -63,11 +64,13 @@ export default function Library() {
   const [refreshKey] = useState(0);
   const scanProgress = useScanStore((s) => s.progress);
   const allTags = useTagStore((s) => s.tagGroups.flatMap((g) => g.tags));
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
 
   const debouncedSearch = useDebounce(searchKeyword, 350);
 
   const query = useMemo(
     () => ({
+      workspaceId: currentWorkspaceId,
       folderId: selectedFolderId,
       keyword: debouncedSearch || null,
       tagIds: filterTags.length > 0 ? filterTags : null,
@@ -76,10 +79,15 @@ export default function Library() {
       sortBy,
       sortOrder,
     }),
-    [selectedFolderId, debouncedSearch, filterTags, page, pageSize, sortBy, sortOrder],
+    [currentWorkspaceId, selectedFolderId, debouncedSearch, filterTags, page, pageSize, sortBy, sortOrder],
   );
 
   const load = useCallback(async () => {
+    if (currentWorkspaceId === null) {
+      store.setCurrentVideos([], 0);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const result = await videoApi.list(query);
@@ -89,7 +97,7 @@ export default function Library() {
     } finally {
       setLoading(false);
     }
-  }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, currentWorkspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     load();
@@ -245,6 +253,7 @@ export default function Library() {
           selectedId={selectedFolderId}
           onSelect={store.setSelectedFolder}
           refreshKey={refreshKey}
+          workspaceId={currentWorkspaceId}
         />
       </div>
 
@@ -318,7 +327,14 @@ export default function Library() {
           {loading ? (
             <div style={{ textAlign: "center", padding: 60 }}><Spin /></div>
           ) : currentVideos.length === 0 ? (
-            <Empty style={{ marginTop: 80 }} description="暂无视频，请选择文件夹并扫描" />
+            <Empty
+              style={{ marginTop: 80 }}
+              description={
+                currentWorkspaceId === null
+                  ? "请先在左侧「新增文件夹并扫描」创建工作区"
+                  : "该工作区暂无视频，可点击侧边栏右上角重新扫描"
+              }
+            />
           ) : viewMode === "grid" ? (
             <div className="video-grid">
               {currentVideos.map((v) => (

@@ -87,12 +87,12 @@ fn is_ignored(name: &str, ignored: &[String]) -> bool {
 }
 
 /// 确保文件夹层级存在于 DB，返回叶子文件夹 id
-fn ensure_folder(conn: &Connection, path: &Path) -> Result<i64, String> {
+fn ensure_folder(conn: &Connection, path: &Path, workspace_id: i64) -> Result<i64, String> {
     let norm = normalize_path(path);
     // 已存在则直接返回
     if let Ok(Some(id)) = conn.query_row(
-        "SELECT id FROM folders WHERE path = ?1",
-        params![norm],
+        "SELECT id FROM folders WHERE path = ?1 AND workspace_id = ?2",
+        params![norm, workspace_id],
         |r| r.get(0),
     ) {
         return Ok(id);
@@ -105,14 +105,14 @@ fn ensure_folder(conn: &Connection, path: &Path) -> Result<i64, String> {
 
     let parent_id: Option<i64> = match path.parent() {
         Some(p) if !p.as_os_str().is_empty() && p != path => {
-            Some(ensure_folder(conn, p)?)
+            Some(ensure_folder(conn, p, workspace_id)?)
         }
         _ => None,
     };
 
     conn.execute(
-        "INSERT INTO folders (parent_id, name, path) VALUES (?1, ?2, ?3)",
-        params![parent_id, name, norm],
+        "INSERT INTO folders (parent_id, workspace_id, name, path) VALUES (?1, ?2, ?3, ?4)",
+        params![parent_id, workspace_id, name, norm],
     )
     .map_err(|e| format!("插入文件夹失败: {e}"))?;
     Ok(conn.last_insert_rowid())
@@ -146,7 +146,7 @@ fn get_setting(conn: &Connection, key: &str) -> Option<String> {
 }
 
 /// 开始全量扫描（阻塞调用，运行于后台线程）
-pub fn run_scan(ctx: &ScanContext, root: &str) -> Result<ScanResult, String> {
+pub fn run_scan(ctx: &ScanContext, root: &str, workspace_id: i64) -> Result<ScanResult, String> {
     if ctx.is_scanning.swap(true, Ordering::SeqCst) {
         return Err("扫描正在进行中".to_string());
     }
@@ -169,12 +169,6 @@ pub fn run_scan(ctx: &ScanContext, root: &str) -> Result<ScanResult, String> {
     let result = (|| -> Result<ScanResult, String> {
         let conn = ctx.db.lock().unwrap();
 
-        // 保存根目录设置
-        let _ = conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('root_path', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP",
-            params![root],
-        );
         let ignored = ignored_dirs(&conn);
         let ffprobe_path = get_setting(&conn, "ffprobe_path");
         let ffmpeg_path = get_setting(&conn, "ffmpeg_path");
@@ -232,7 +226,7 @@ pub fn run_scan(ctx: &ScanContext, root: &str) -> Result<ScanResult, String> {
                 p.progress = (ratio * 100.0).min(99.0);
             });
 
-            let result = process_one_file(&conn, entry.path(), &ffprobe, &ffmpeg, cover_dir.as_deref(), compute_hash);
+            let result = process_one_file(&conn, entry.path(), workspace_id, &ffprobe, &ffmpeg, cover_dir.as_deref(), compute_hash);
             scanned += 1;
             match result {
                 Ok(Outcome::Added) => added += 1,
@@ -257,7 +251,7 @@ pub fn run_scan(ctx: &ScanContext, root: &str) -> Result<ScanResult, String> {
         }
 
         // 清理：删除已不存在的文件记录
-        cleanup_missing(&conn, &root_path);
+        cleanup_missing(&conn, &root_path, workspace_id);
 
         ctx.set_progress(|p| {
             p.scanned_files = scanned;
@@ -269,7 +263,7 @@ pub fn run_scan(ctx: &ScanContext, root: &str) -> Result<ScanResult, String> {
             p.errors = errors.clone();
         });
 
-        Ok(ScanResult { added, updated, unchanged, errors })
+        Ok(ScanResult { workspace_id, added, updated, unchanged, errors })
     })();
 
     ctx.is_scanning.store(false, Ordering::SeqCst);
@@ -286,6 +280,7 @@ enum Outcome {
 fn process_one_file(
     conn: &Connection,
     path: &Path,
+    workspace_id: i64,
     ffprobe: &Option<PathBuf>,
     ffmpeg: &Option<PathBuf>,
     cover_dir: Option<&Path>,
@@ -340,14 +335,15 @@ fn process_one_file(
     }
 
     // 新增
-    let folder_id = ensure_folder(conn, path.parent().unwrap_or(Path::new("")))?;
+    let folder_id = ensure_folder(conn, path.parent().unwrap_or(Path::new("")), workspace_id)?;
     let (meta, cover_path, hash) = extract(path, -1, ffprobe, ffmpeg, cover_dir, compute_hash);
     conn.execute(
-        "INSERT INTO videos (folder_id, file_name, file_path, file_size, duration, width, height,
+        "INSERT INTO videos (folder_id, workspace_id, file_name, file_path, file_size, duration, width, height,
          codec, fps, sample_rate, cover_path, file_hash, modified_at, scanned_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, CURRENT_TIMESTAMP)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, CURRENT_TIMESTAMP)",
         params![
             folder_id,
+            workspace_id,
             file_name,
             file_path_str,
             file_size,
@@ -399,12 +395,12 @@ fn extract(
 }
 
 /// 清理数据库中已不存在的文件记录
-fn cleanup_missing(conn: &Connection, root: &Path) {
+fn cleanup_missing(conn: &Connection, root: &Path, workspace_id: i64) {
     let root_str = normalize_path(root);
     let videos: Vec<(i64, String)> = conn
-        .prepare("SELECT id, file_path FROM videos WHERE file_path LIKE ?1")
+        .prepare("SELECT id, file_path FROM videos WHERE file_path LIKE ?1 AND workspace_id = ?2")
         .and_then(|mut stmt| {
-            stmt.query_map(params![format!("{}%", root_str)], |r| {
+            stmt.query_map(params![format!("{}%", root_str), workspace_id], |r| {
                 Ok((r.get(0)?, r.get(1)?))
             })
             .map(|rows| rows.flatten().collect())
@@ -433,6 +429,15 @@ mod tests {
         (dir, db)
     }
 
+    fn make_workspace(conn: &Connection, path: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO workspaces (name, path) VALUES (?1, ?2)",
+            params![path, path],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
     #[test]
     fn scan_adds_videos_recursively_and_skips_non_video() {
         let (dir, db_path) = temp_env("scan_add");
@@ -444,8 +449,9 @@ mod tests {
         std::fs::write(sub.join("notes.txt"), b"ignore me").unwrap();
 
         let conn = crate::db::init_db_at(&db_path).unwrap();
+        let ws = make_workspace(&conn, dir.to_str().unwrap());
         let ctx = ScanContext::new(conn);
-        let result = run_scan(&ctx, dir.to_str().unwrap()).unwrap();
+        let result = run_scan(&ctx, dir.to_str().unwrap(), ws).unwrap();
 
         assert_eq!(result.added, 2, "应只入库 2 个视频文件");
         assert_eq!(result.unchanged, 0);
@@ -490,13 +496,14 @@ mod tests {
         std::fs::write(&video, b"v1").unwrap();
 
         let conn = crate::db::init_db_at(&db_path).unwrap();
+        let ws = make_workspace(&conn, dir.to_str().unwrap());
         let ctx = ScanContext::new(conn);
 
-        let r1 = run_scan(&ctx, dir.to_str().unwrap()).unwrap();
+        let r1 = run_scan(&ctx, dir.to_str().unwrap(), ws).unwrap();
         assert_eq!(r1.added, 1);
 
         // 未变化的文件应跳过
-        let r2 = run_scan(&ctx, dir.to_str().unwrap()).unwrap();
+        let r2 = run_scan(&ctx, dir.to_str().unwrap(), ws).unwrap();
         assert_eq!(r2.added, 0);
         assert_eq!(r2.updated, 0);
         assert_eq!(r2.unchanged, 1);
@@ -504,7 +511,7 @@ mod tests {
         // 修改文件后应更新
         std::thread::sleep(std::time::Duration::from_millis(1100));
         std::fs::write(&video, b"v2 longer content").unwrap();
-        let r3 = run_scan(&ctx, dir.to_str().unwrap()).unwrap();
+        let r3 = run_scan(&ctx, dir.to_str().unwrap(), ws).unwrap();
         assert_eq!(r3.updated, 1);
 
         let conn = ctx.db.lock().unwrap();
@@ -525,11 +532,12 @@ mod tests {
         std::fs::write(&video, b"data").unwrap();
 
         let conn = crate::db::init_db_at(&db_path).unwrap();
+        let ws = make_workspace(&conn, dir.to_str().unwrap());
         let ctx = ScanContext::new(conn);
-        run_scan(&ctx, dir.to_str().unwrap()).unwrap();
+        run_scan(&ctx, dir.to_str().unwrap(), ws).unwrap();
 
         std::fs::remove_file(&video).unwrap();
-        run_scan(&ctx, dir.to_str().unwrap()).unwrap();
+        run_scan(&ctx, dir.to_str().unwrap(), ws).unwrap();
 
         let conn = ctx.db.lock().unwrap();
         let count: i64 = conn

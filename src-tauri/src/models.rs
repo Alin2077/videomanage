@@ -1,8 +1,22 @@
 use serde::{Deserialize, Serialize};
 
+// ---------- 工作区 ----------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Workspace {
+    pub id: i64,
+    pub name: String,
+    pub path: String,
+    pub created_at: String,
+    pub video_count: i64,
+    pub folder_count: i64,
+}
+
 // ---------- 文件夹 ----------
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FolderNode {
     pub id: i64,
     pub parent_id: Option<i64>,
@@ -15,6 +29,7 @@ pub struct FolderNode {
 // ---------- 视频 ----------
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VideoInfo {
     pub id: i64,
     pub folder_id: i64,
@@ -39,6 +54,7 @@ pub struct VideoInfo {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VideoDetail {
     #[serde(flatten)]
     pub info: VideoInfo,
@@ -47,23 +63,27 @@ pub struct VideoDetail {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PageResult<T> {
     pub total: i64,
     pub items: Vec<T>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VideoQuery {
+    pub workspace_id: Option<i64>,
     pub folder_id: Option<i64>,
     pub keyword: Option<String>,
     pub tag_ids: Option<Vec<i64>>,
     pub page: u32,
     pub page_size: u32,
-    pub sort_by: Option<String>, // name | size | duration | open_count | modified_at
+    pub sort_by: Option<String>,   // name | size | duration | open_count | modified_at
     pub sort_order: Option<String>, // asc | desc
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VideoMetaUpdate {
     pub custom_title: Option<String>,
     pub notes: Option<String>,
@@ -72,6 +92,7 @@ pub struct VideoMetaUpdate {
 // ---------- 标签 ----------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Tag {
     pub id: i64,
     pub group_id: Option<i64>,
@@ -80,6 +101,7 @@ pub struct Tag {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TagGroup {
     pub id: i64,
     pub name: String,
@@ -87,6 +109,7 @@ pub struct TagGroup {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TagGroupWithTags {
     pub id: i64,
     pub name: String,
@@ -95,6 +118,7 @@ pub struct TagGroupWithTags {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TagInput {
     pub id: Option<i64>,
     pub group_id: Option<i64>,
@@ -103,6 +127,7 @@ pub struct TagInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TagGroupInput {
     pub id: Option<i64>,
     pub name: String,
@@ -112,6 +137,7 @@ pub struct TagGroupInput {
 // ---------- 打开日志 ----------
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OpenLog {
     pub id: i64,
     pub video_id: i64,
@@ -122,6 +148,7 @@ pub struct OpenLog {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OpenLogWithVideo {
     #[serde(flatten)]
     pub log: OpenLog,
@@ -130,6 +157,7 @@ pub struct OpenLogWithVideo {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogFilter {
     pub video_id: Option<i64>,
     pub start_date: Option<String>, // YYYY-MM-DD
@@ -139,6 +167,7 @@ pub struct LogFilter {
 // ---------- 统计 ----------
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DashboardStats {
     pub total_videos: i64,
     pub total_folders: i64,
@@ -150,6 +179,7 @@ pub struct DashboardStats {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TrendPoint {
     pub label: String,
     pub watch_seconds: f64,
@@ -157,6 +187,7 @@ pub struct TrendPoint {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LeaderboardItem {
     pub video_id: i64,
     pub file_name: String,
@@ -167,6 +198,7 @@ pub struct LeaderboardItem {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TagStat {
     pub tag_id: i64,
     pub tag_name: String,
@@ -175,6 +207,7 @@ pub struct TagStat {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HourCell {
     pub weekday: i64, // 0=周一 ... 6=周日
     pub hour: i64,    // 0-23
@@ -185,6 +218,7 @@ pub struct HourCell {
 // ---------- 扫描 ----------
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanProgress {
     pub is_scanning: bool,
     pub progress: f64, // 0-100
@@ -198,7 +232,9 @@ pub struct ScanProgress {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanResult {
+    pub workspace_id: i64,
     pub added: u64,
     pub updated: u64,
     pub unchanged: u64,

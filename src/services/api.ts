@@ -20,6 +20,7 @@ import type {
   VideoInfo,
   VideoMetaUpdate,
   VideoQuery,
+  Workspace,
 } from "../types";
 
 /** 将本地路径转为可被 <img>/<video> 使用的 URL */
@@ -28,14 +29,21 @@ export function toAssetUrl(path: string | null | undefined): string {
   return convertFileSrc(path);
 }
 
-// ---------- 扫描 ----------
+// ---------- 扫描与工作区 ----------
 export const scanApi = {
-  scanRootFolder: (path: string) => invoke<ScanResult>("scan_root_folder", { path }),
+  scanRootFolder: (path: string, name: string) =>
+    invoke<ScanResult>("scan_root_folder", { path, name }),
   getScanProgress: () => invoke<ScanProgress>("get_scan_progress"),
   cancelScan: () => invoke<void>("cancel_scan"),
   getFolderChildren: (parentId: number | null) =>
     invoke<FolderNode[]>("get_folder_children", { parentId }),
-  getRootFolders: () => invoke<FolderNode[]>("get_root_folders"),
+  getRootFolders: (workspaceId: number) =>
+    invoke<FolderNode[]>("get_root_folders", { workspaceId }),
+};
+
+export const workspaceApi = {
+  list: () => invoke<Workspace[]>("list_workspaces"),
+  remove: (workspaceId: number) => invoke<void>("delete_workspace", { workspaceId }),
 };
 
 // ---------- 视频 ----------
