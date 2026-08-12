@@ -1,11 +1,11 @@
-﻿import { useCallback, useEffect, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useRef } from "react";
 import { Button, Space } from "antd";
-import { CloseOutlined, FastBackwardOutlined, FastForwardOutlined } from "@ant-design/icons";
+import { CloseOutlined } from "@ant-design/icons";
+import Artplayer from "artplayer";
 import { toAssetUrl, videoApi } from "../services/api";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { useDataVersionStore } from "../stores/useDataVersionStore";
 import type { VideoInfo } from "../types";
-import { formatDuration } from "../utils/format";
 
 interface Props {
   video: VideoInfo;
@@ -13,14 +13,14 @@ interface Props {
 }
 
 /**
- * 内嵌播放器：打开时记录观看日志，关闭时写入关闭时间与时长。
- * 键盘控制：←/→ 快退/快进（步长可在设置中调整）、空格 播放/暂停、Esc 关闭。
+ * 基于 artplayer 的内嵌播放器。
+ * - 打开/关闭时记录观看日志（只在 video.id 变化时执行一次，避免重复计数）
+ * - 键盘控制：←/→ 快退/快进（步长可设置）、空格 播放/暂停、Esc 关闭
  */
 export default function VideoPlayer({ video, onClose }: Props) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const artRef = useRef<Artplayer | null>(null);
   const logIdRef = useRef<number | null>(null);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
 
   // 快进/快退步长（秒），设置页可配置，默认 5s
   const seekStep = useSettingsStore((s) => {
@@ -30,77 +30,111 @@ export default function VideoPlayer({ video, onClose }: Props) {
 
   const bumpLogs = useDataVersionStore((s) => s.bumpLogs);
 
-  const close = useCallback(() => {
-    if (logIdRef.current !== null) {
-      videoApi.logClose(logIdRef.current).catch(() => {});
-      logIdRef.current = null;
-      bumpLogs();
-    }
-    onClose();
-  }, [onClose, bumpLogs]);
+  // 用 ref 保存最新值，供键盘监听使用（避免因引用变化重建 effect 导致日志重复计数）
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const seekStepRef = useRef(seekStep);
+  seekStepRef.current = seekStep;
+  const bumpLogsRef = useRef(bumpLogs);
+  bumpLogsRef.current = bumpLogs;
+  const openPromiseRef = useRef<Promise<number> | null>(null);
 
-  const seekBy = useCallback(
-    (delta: number) => {
-      const v = videoRef.current;
-      if (!v) return;
-      const max = v.duration || 0;
-      v.currentTime = Math.min(max, Math.max(0, v.currentTime + delta));
-      setCurrentTime(v.currentTime);
-    },
-    [],
-  );
-
+  // 只在 video.id 变化时执行：创建播放器、记录打开日志、绑定键盘
   useEffect(() => {
-    videoApi
-      .logOpen(video.id)
+    const bump = () => bumpLogsRef.current();
+
+    // 记录打开日志（仅一次）
+    const openP = videoApi.logOpen(video.id);
+    openPromiseRef.current = openP;
+    openP
       .then((logId) => {
         logIdRef.current = logId;
-        bumpLogs();
+        bump();
       })
       .catch(() => {});
 
+    // 创建 artplayer 实例
+    if (containerRef.current) {
+      const art = new Artplayer({
+        container: containerRef.current,
+        url: toAssetUrl(video.filePath),
+        autoplay: true,
+        // 关闭内置快捷键，使用自定义键盘控制（步长可配置）
+        hotkey: false,
+        theme: "#4a7dff",
+        volume: 0.8,
+        setting: true,
+        pip: true,
+        fullscreen: true,
+        fullscreenWeb: true,
+        flip: true,
+        playbackRate: true,
+        aspectRatio: true,
+        screenshot: true,
+        autoSize: false,
+      });
+      artRef.current = art;
+    }
+
     const onKey = (e: KeyboardEvent) => {
+      const art = artRef.current;
+      if (!art) return;
       if (e.key === "Escape") {
-        close();
+        closeRef.current();
         return;
       }
       if (e.key === "ArrowRight") {
         e.preventDefault();
-        seekBy(seekStep);
+        art.currentTime = Math.min(art.duration || 0, art.currentTime + seekStepRef.current);
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
-        seekBy(-seekStep);
+        art.currentTime = Math.max(0, art.currentTime - seekStepRef.current);
       } else if (e.key === " ") {
         e.preventDefault();
-        const v = videoRef.current;
-        if (v) {
-          if (v.paused) v.play();
-          else v.pause();
-        }
+        art.toggle();
       }
     };
     window.addEventListener("keydown", onKey);
+
     return () => {
       window.removeEventListener("keydown", onKey);
-      // 组件卸载兜底：若未正常关闭则补记日志
-      if (logIdRef.current !== null) {
-        videoApi.logClose(logIdRef.current).catch(() => {});
-        logIdRef.current = null;
-        bumpLogs();
+      // 关闭播放器时记录关闭日志（仅一次；若打开日志尚未完成则等待后补记）
+      const p = openPromiseRef.current;
+      if (p) {
+        p.then(() => {
+          if (logIdRef.current !== null) {
+            videoApi.logClose(logIdRef.current).catch(() => {});
+            logIdRef.current = null;
+            bump();
+          }
+        }).catch(() => {});
       }
+      artRef.current?.destroy();
+      artRef.current = null;
     };
-  }, [video.id, close, seekBy, seekStep, bumpLogs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [video.id]);
+
+  const close = useCallback(() => {
+    // 手动关闭：等待打开日志完成后补记关闭（cleanup 兜底同样逻辑）
+    const p = openPromiseRef.current;
+    if (p) {
+      p.then(() => {
+        if (logIdRef.current !== null) {
+          videoApi.logClose(logIdRef.current).catch(() => {});
+          logIdRef.current = null;
+          bumpLogsRef.current();
+        }
+      }).catch(() => {});
+    }
+    onClose();
+  }, [onClose]);
 
   return (
     <div className="player-container" onClick={(e) => e.stopPropagation()}>
-      <video
-        ref={videoRef}
-        className="player-video"
-        src={toAssetUrl(video.filePath)}
-        controls
-        autoPlay
-        onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-        onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+      <div
+        ref={containerRef}
+        style={{ flex: 1, width: "100%", minHeight: 0, background: "#000" }}
       />
       <div className="player-bar">
         <Space>
@@ -108,13 +142,13 @@ export default function VideoPlayer({ video, onClose }: Props) {
             {video.customTitle || video.fileName}
           </span>
           <span style={{ opacity: 0.7 }}>
-            {formatDuration(currentTime)} / {formatDuration(duration)}
-            {video.width && video.height ? ` · ${video.width}×${video.height}` : ""}
+            {video.width && video.height ? `${video.width}×${video.height}` : ""}
+            {video.codec ? ` · ${video.codec}` : ""}
           </span>
         </Space>
         <Space>
           <span style={{ opacity: 0.7, fontSize: 12 }}>
-            <FastBackwardOutlined /> / <FastForwardOutlined /> {seekStep}s · 空格 播放/暂停 · Esc 关闭
+            ←/→ {seekStep}s 快退/快进 · 空格 播放/暂停 · Esc 关闭
           </span>
           <Button icon={<CloseOutlined />} onClick={close} size="small">
             关闭 (Esc)
