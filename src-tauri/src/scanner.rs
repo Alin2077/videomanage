@@ -89,12 +89,20 @@ fn is_ignored(name: &str, ignored: &[String]) -> bool {
 /// 确保文件夹层级存在于 DB，返回叶子文件夹 id
 fn ensure_folder(conn: &Connection, path: &Path, workspace_id: i64) -> Result<i64, String> {
     let norm = normalize_path(path);
-    // 已存在则直接返回
-    if let Ok(Some(id)) = conn.query_row(
-        "SELECT id FROM folders WHERE path = ?1 AND workspace_id = ?2",
-        params![norm, workspace_id],
-        |r| r.get(0),
+    // 按 path 查找（path 全局唯一，不限制 workspace 以兼容旧数据）
+    if let Ok((id, existing_ws)) = conn.query_row(
+        "SELECT id, workspace_id FROM folders WHERE path = ?1",
+        params![norm],
+        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?)),
     ) {
+        // 旧数据的 workspace_id 可能为 NULL，修正之
+        if existing_ws != Some(workspace_id) {
+            conn.execute(
+                "UPDATE folders SET workspace_id = ?1 WHERE id = ?2",
+                params![workspace_id, id],
+            )
+            .map_err(|e| format!("更新文件夹 workspace_id 失败: {e}"))?;
+        }
         return Ok(id);
     }
 
@@ -297,26 +305,30 @@ fn process_one_file(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| file_path_str.clone());
 
-    // 判断是否需要处理
-    let existing: Option<(i64, String, i64)> = conn
+    // 判断是否需要处理：按 file_path 查已有记录（全局唯一），同时取 workspace_id 用于比对
+    let existing: Option<(i64, String, i64, Option<i64>)> = conn
         .query_row(
-            "SELECT id, modified_at, file_size FROM videos WHERE file_path = ?1",
+            "SELECT id, modified_at, file_size, workspace_id FROM videos WHERE file_path = ?1",
             params![file_path_str],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .ok();
 
-    if let Some((video_id, db_mtime, db_size)) = existing {
-        if db_mtime == mtime && db_size == file_size {
+    if let Some((video_id, db_mtime, db_size, db_ws)) = existing {
+        // 文件未变化 且 workspace_id 一致 → 跳过
+        if db_mtime == mtime && db_size == file_size && db_ws == Some(workspace_id) {
             return Ok(Outcome::Unchanged);
         }
-        // 文件有变化 → 重新提取元数据更新
+        // 文件有变化或 workspace_id 不同（旧数据兼容）→ 重新提取元数据并更新
+        let folder_id = ensure_folder(conn, path.parent().unwrap_or(Path::new("")), workspace_id)?;
         let (meta, cover_path, hash) = extract(path, video_id, ffprobe, ffmpeg, cover_dir, compute_hash);
         conn.execute(
-            "UPDATE videos SET file_size = ?1, duration = ?2, width = ?3, height = ?4,
-             codec = ?5, fps = ?6, sample_rate = ?7, cover_path = ?8, file_hash = ?9,
-             modified_at = ?10, scanned_at = CURRENT_TIMESTAMP WHERE id = ?11",
+            "UPDATE videos SET folder_id = ?1, workspace_id = ?2, file_size = ?3, duration = ?4,
+             width = ?5, height = ?6, codec = ?7, fps = ?8, sample_rate = ?9, cover_path = ?10,
+             file_hash = ?11, modified_at = ?12, scanned_at = CURRENT_TIMESTAMP WHERE id = ?13",
             params![
+                folder_id,
+                workspace_id,
                 file_size,
                 meta.duration,
                 meta.width,
@@ -394,13 +406,13 @@ fn extract(
     (meta, cover_path, hash)
 }
 
-/// 清理数据库中已不存在的文件记录
+/// 清理数据库中已不存在的文件记录（不限 workspace，按路径前缀匹配）
 fn cleanup_missing(conn: &Connection, root: &Path, workspace_id: i64) {
     let root_str = normalize_path(root);
     let videos: Vec<(i64, String)> = conn
-        .prepare("SELECT id, file_path FROM videos WHERE file_path LIKE ?1 AND workspace_id = ?2")
+        .prepare("SELECT id, file_path FROM videos WHERE file_path LIKE ?1")
         .and_then(|mut stmt| {
-            stmt.query_map(params![format!("{}%", root_str), workspace_id], |r| {
+            stmt.query_map(params![format!("{}%", root_str)], |r| {
                 Ok((r.get(0)?, r.get(1)?))
             })
             .map(|rows| rows.flatten().collect())
@@ -413,6 +425,15 @@ fn cleanup_missing(conn: &Connection, root: &Path, workspace_id: i64) {
             let _ = conn.execute("DELETE FROM videos WHERE id = ?1", params![id]);
         }
     }
+    // 补充：修正旧数据的 NULL workspace_id
+    let _ = conn.execute(
+        "UPDATE folders SET workspace_id = ?1 WHERE path LIKE ?2 AND workspace_id IS NULL",
+        params![workspace_id, format!("{}%", root_str)],
+    );
+    let _ = conn.execute(
+        "UPDATE videos SET workspace_id = ?1 WHERE file_path LIKE ?2 AND workspace_id IS NULL",
+        params![workspace_id, format!("{}%", root_str)],
+    );
 }
 
 #[cfg(test)]
@@ -544,6 +565,64 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM videos", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 0, "文件删除后记录应被清理");
+        drop(conn);
+
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// 模拟旧版升级场景：DB 中已有 folder/video 但 workspace_id = NULL，
+    /// 重新扫描后应被修正为当前工作区 id
+    #[test]
+    fn scan_fixes_null_workspace_ids_from_legacy_data() {
+        let (dir, db_path) = temp_env("scan_fixws");
+        let video = dir.join("old.mp4");
+        std::fs::write(&video, b"legacy content").unwrap();
+
+        let conn = crate::db::init_db_at(&db_path).unwrap();
+        // 模拟旧数据：直接插入 NULL workspace_id 的 folder 和 video
+        conn.execute(
+            "INSERT INTO folders (parent_id, workspace_id, name, path) VALUES (NULL, NULL, 'old', ?1)",
+            params![normalize_path(&dir)],
+        )
+        .unwrap();
+        let old_fid = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO videos (folder_id, workspace_id, file_name, file_path, file_size, modified_at)
+             VALUES (?1, NULL, 'old.mp4', ?2, 14, '2000-01-01 00:00:00')",
+            params![old_fid, normalize_path(&video)],
+        )
+        .unwrap();
+
+        let ws = make_workspace(&conn, dir.to_str().unwrap());
+        let ctx = ScanContext::new(conn);
+
+        // 扫描应修正 workspace_id 而非报 UNIQUE 冲突
+        let result = run_scan(&ctx, dir.to_str().unwrap(), ws).unwrap();
+        assert_eq!(result.added, 0);
+        assert_eq!(result.updated, 1);
+        assert_eq!(result.errors.len(), 0);
+
+        let conn = ctx.db.lock().unwrap();
+        // folder 的 workspace_id 应被修正
+        let ws_ok: i64 = conn
+            .query_row(
+                "SELECT workspace_id FROM folders WHERE id = ?1",
+                params![old_fid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(ws_ok, ws);
+
+        // video 的 workspace_id 应被修正
+        let v_ws: i64 = conn
+            .query_row(
+                "SELECT workspace_id FROM videos WHERE file_path = ?1",
+                params![normalize_path(&video)],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(v_ws, ws);
         drop(conn);
 
         let _ = std::fs::remove_dir_all(&dir);
