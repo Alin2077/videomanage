@@ -130,7 +130,6 @@ pub fn get_root_folders(state: TauriState<'_>, workspace_id: i64) -> Result<Vec<
     let mut stmt = conn
         .prepare(
             "SELECT f.id, f.parent_id, f.name, f.path,
-                    (SELECT COUNT(*) FROM videos v WHERE v.folder_id = f.id) AS video_count,
                     EXISTS(SELECT 1 FROM folders c WHERE c.parent_id = f.id) AS has_children
              FROM folders f
              JOIN workspaces w ON w.id = f.workspace_id
@@ -138,19 +137,28 @@ pub fn get_root_folders(state: TauriState<'_>, workspace_id: i64) -> Result<Vec<
              ORDER BY f.name",
         )
         .map_err(|e| format!("查询失败: {e}"))?;
+    let mut nodes: Vec<FolderNode> = Vec::new();
     let rows = stmt
         .query_map(params![workspace_id], |r| {
-            Ok(FolderNode {
-                id: r.get(0)?,
-                parent_id: r.get(1)?,
-                name: r.get(2)?,
-                path: r.get(3)?,
-                video_count: r.get(4)?,
-                has_children: r.get(5)?,
-            })
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Option<i64>>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, bool>(4)?,
+            ))
         })
         .map_err(|e| format!("查询失败: {e}"))?;
-    let nodes = rows.collect::<Result<Vec<_>, _>>().map_err(|e| format!("读取失败: {e}"))?;
+    for row in rows {
+        let (id, parent_id, name, path, has_children) = row.map_err(|e| format!("读取失败: {e}"))?;
+        nodes.push(FolderNode { id, parent_id, name, path, video_count: 0, has_children });
+    }
+    // 递归视频数（含子目录），与列表过滤保持一致
+    let ids: Vec<i64> = nodes.iter().map(|n| n.id).collect();
+    let counts = super::subtree_video_counts(&conn, &ids)?;
+    for n in nodes.iter_mut() {
+        n.video_count = counts.get(&n.id).copied().unwrap_or(0);
+    }
     Ok(nodes)
 }
 
@@ -168,28 +176,27 @@ pub fn get_folder_children(
 
     let mut stmt = conn
         .prepare(
-            "SELECT f.id, f.parent_id, f.name, f.path,
-                    (SELECT COUNT(*) FROM videos v WHERE v.folder_id = f.id) AS video_count
+            "SELECT f.id, f.parent_id, f.name, f.path
              FROM folders f
              WHERE f.parent_id IS ?1
              ORDER BY f.name",
         )
         .map_err(|e| format!("查询失败: {e}"))?;
 
+    let mut nodes: Vec<FolderNode> = Vec::new();
     let rows = stmt
         .query_map(params![parent_id], |r| {
-            let id: i64 = r.get(0)?;
-            let parent: Option<i64> = r.get(1)?;
-            let name: String = r.get(2)?;
-            let path: String = r.get(3)?;
-            let video_count: i64 = r.get(4)?;
-            Ok(FolderNode { id, parent_id: parent, name, path, video_count, has_children: false })
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Option<i64>>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+            ))
         })
         .map_err(|e| format!("查询失败: {e}"))?;
-
-    let mut nodes: Vec<FolderNode> = Vec::new();
     for row in rows {
-        nodes.push(row.map_err(|e| format!("读取失败: {e}"))?);
+        let (id, parent, name, path) = row.map_err(|e| format!("读取失败: {e}"))?;
+        nodes.push(FolderNode { id, parent_id: parent, name, path, video_count: 0, has_children: false });
     }
     // stmt 已随作用域结束释放，可再次借用 conn 判断是否有子文件夹
     for n in nodes.iter_mut() {
@@ -200,6 +207,12 @@ pub fn get_folder_children(
                 |r| r.get::<_, bool>(0),
             )
             .unwrap_or(false);
+    }
+    // 递归视频数（含子目录），与列表过滤保持一致
+    let ids: Vec<i64> = nodes.iter().map(|n| n.id).collect();
+    let counts = super::subtree_video_counts(&conn, &ids)?;
+    for n in nodes.iter_mut() {
+        n.video_count = counts.get(&n.id).copied().unwrap_or(0);
     }
     Ok(nodes)
 }

@@ -41,7 +41,17 @@ pub fn list_videos(state: TauriState<'_>, query: VideoQuery) -> Result<PageResul
             params_vec.push(Box::new(ws));
         }
         if let Some(fid) = query.folder_id {
-            where_clauses.push("v.folder_id = ?".to_string());
+            // 递归包含该文件夹及其所有子孙文件夹的视频，与树节点计数一致
+            where_clauses.push(
+                "v.folder_id IN (
+                    WITH RECURSIVE sub(id) AS (
+                        SELECT ? UNION ALL
+                        SELECT c.id FROM folders c JOIN sub ON c.parent_id = sub.id
+                    )
+                    SELECT id FROM sub
+                )"
+                .to_string(),
+            );
             params_vec.push(Box::new(fid));
         }
         if let Some(kw) = query.keyword.as_deref().filter(|k| !k.trim().is_empty()) {
